@@ -1,0 +1,156 @@
+"""
+@author: Shubham Jain
+"""
+#-----------------------------------
+#  FEATURE EXTRACTION
+#-----------------------------------
+
+# organize imports
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import MinMaxScaler
+import numpy as np
+import mahotas
+import cv2
+import os
+import h5py
+
+# fixed-sizes for image
+fixed_size = tuple((500, 500))
+
+# no.of.trees for Random Forests
+num_trees = 100
+
+# bins for histogram
+bins = 8
+
+# train_test_split size
+test_size = 0.10
+
+# seed for reproducing same results
+seed = 9
+
+# base directory of the project
+base_dir = os.path.dirname(os.path.abspath(__file__))
+
+# train dataset directory
+train_dir = os.path.join(os.path.join(base_dir, 'dataset'), 'train')
+
+
+# feature-descriptor-1: Hu Moments
+def fd_hu_moments(image):
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    feature = cv2.HuMoments(cv2.moments(image)).flatten()
+    return feature
+
+# feature-descriptor-2: Haralick Texture
+def fd_haralick(image):
+    # convert the image to grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # compute the haralick texture feature vector
+    haralick = mahotas.features.haralick(gray).mean(axis=0)
+    # return the result
+    return haralick
+
+# feature-descriptor-3: Color Histogram
+def fd_histogram(image, mask=None):
+    # convert the image to HSV color-space
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    # compute the color histogram
+    hist  = cv2.calcHist([image], [0, 1, 2], None, [bins, bins, bins], [0, 500, 0, 500, 0, 500])
+    # normalize the histogram
+    cv2.normalize(hist, hist)
+    # return the histogram
+    return hist.flatten()
+
+# get the training labels
+train_labels = os.listdir(train_dir)
+
+# sort the training labels
+train_labels.sort()
+print(train_labels)
+
+# empty lists to hold feature vectors and labels
+features = []
+labels = []
+
+i, j = 0, 0
+k = 0
+
+# num of images per class
+images_per_class = 100
+
+# loop over the training data sub-folders
+for training_name in os.listdir(train_dir):
+
+    # get the current training label
+    current_label = training_name
+    
+    # directory of all the current label data
+    label_dir = os.path.join(train_dir, training_name)
+
+    k = 1
+    # loop over the images in each sub-folder
+    name='image_'
+    for img in os.listdir(label_dir):
+        # get the image file name
+        file = os.path.join(label_dir, img)
+        print(file)
+
+        # read the image and resize it to a fixed-size
+        image = cv2.imread(file)
+        if image.shape is not None:
+            image = cv2.resize(image, fixed_size)
+
+            ####################################
+            # Global Feature extraction
+            ####################################
+            fv_hu_moments = fd_hu_moments(image)
+            fv_haralick   = fd_haralick(image)
+            fv_histogram  = fd_histogram(image)
+    
+            ###################################
+            # Concatenate features
+            ###################################
+            feature_extraction = np.hstack([fv_histogram, fv_haralick, fv_hu_moments])
+    
+            # update the list of labels and feature vectors
+            labels.append(current_label)
+            features.append(feature_extraction)
+    
+            i += 1
+            k += 1
+    print("[STATUS] processed folder: {}".format(current_label))
+    j += 1
+
+print("[STATUS] completed Global Feature Extraction...")
+# get the overall feature vector size
+print("[STATUS] feature vector size {}".format(np.array(features).shape))
+
+# get the overall training label size
+print("[STATUS] training Labels {}".format(np.array(labels).shape))
+
+# encode the target labels
+targetNames = np.unique(labels)
+le = LabelEncoder()
+target = le.fit_transform(labels)
+print("[STATUS] training labels encoded...")
+
+# normalize the feature vector in the range (0-1)
+scaler = MinMaxScaler(feature_range=(0, 1))
+rescaled_features = scaler.fit_transform(features)
+print("[STATUS] feature vector normalized...")
+
+print("[STATUS] target labels: {}".format(target))
+print("[STATUS] target labels shape: {}".format(target.shape))
+
+# save the feature vector using HDF5
+h5f_data = h5py.File('output/data.h5', 'w')
+h5f_data.create_dataset('dataset_1', data=np.array(rescaled_features))
+
+h5f_label = h5py.File('output/labels.h5', 'w')
+h5f_label.create_dataset('dataset_1', data=np.array(target))
+
+h5f_data.close()
+h5f_label.close()
+
+print("[STATUS] end of training..")
